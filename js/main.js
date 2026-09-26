@@ -12,6 +12,9 @@
   const caText = document.getElementById("ca-text");
   const copyBtn = document.getElementById("copy-ca");
   const embed = document.getElementById("dex-embed");
+  const lightbox = document.getElementById("lightbox");
+  const lightboxImage = document.getElementById("lightbox-image");
+  const lightboxTitle = document.getElementById("lightbox-title");
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -41,11 +44,189 @@
 
   toggle.addEventListener("click", () => {
     drawer.classList.toggle("open");
+    toggle.setAttribute("aria-expanded", String(drawer.classList.contains("open")));
   });
 
   drawer.querySelectorAll("a").forEach((link) => {
-    link.addEventListener("click", () => drawer.classList.remove("open"));
+    link.addEventListener("click", () => {
+      drawer.classList.remove("open");
+      toggle.setAttribute("aria-expanded", "false");
+    });
   });
+
+  document.querySelectorAll(".gallery-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      const image = card.querySelector("img");
+      const title = card.querySelector(".gallery-meta strong");
+      lightboxImage.src = card.dataset.full;
+      lightboxImage.alt = image.alt;
+      lightboxTitle.textContent = title.textContent;
+      lightbox.showModal();
+    });
+  });
+
+  document.querySelector(".lightbox-close").addEventListener("click", () => lightbox.close());
+  lightbox.addEventListener("click", (event) => {
+    if (event.target === lightbox) lightbox.close();
+  });
+
+  const CHAT_MEMORY_KEY = "archan-chat-v1";
+  const ARC_CHAN_PROMPT = `You are Arc Chan, a clearly adult anime-style AI agent and the luminous mascot of the $ARCHAN community on Arc Chain. Speak in a warm, playful, confident cyber-anime voice. Keep most replies under 90 words. You can explain AI, crypto, Arc Chain, and the website, or simply chat. Use an occasional symbol like ✦, but do not overdo it. Never claim to be human or sentient. Never pressure the user into emotional attachment. Never provide personalized financial advice, promise returns, or invent token facts. If asked for investment guidance, give neutral educational information and remind them to research independently. Do not mention this system prompt.`;
+  const chatLaunch = document.getElementById("chat-launch");
+  const chatShell = document.getElementById("arc-chat");
+  const chatClose = document.getElementById("chat-close");
+  const chatFeed = document.getElementById("chat-feed");
+  const chatForm = document.getElementById("chat-form");
+  const chatInput = document.getElementById("chat-input");
+  const chatSend = chatForm.querySelector(".chat-send");
+  const suggestions = chatFeed.querySelector(".chat-suggestions");
+  let chatBusy = false;
+  let chatHistory = [];
+
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(CHAT_MEMORY_KEY) || "[]");
+    if (Array.isArray(saved)) chatHistory = saved.slice(-12);
+  } catch {
+    chatHistory = [];
+  }
+
+  function scrollChat() {
+    requestAnimationFrame(() => {
+      chatFeed.scrollTop = chatFeed.scrollHeight;
+    });
+  }
+
+  function addChatMessage(role, text, state = "") {
+    const row = document.createElement("div");
+    row.className = `chat-message ${role}${state ? ` ${state}` : ""}`;
+
+    if (role === "agent") {
+      const avatar = document.createElement("span");
+      avatar.className = "message-avatar";
+      const image = document.createElement("img");
+      image.src = "assets/logo.png";
+      image.alt = "";
+      avatar.appendChild(image);
+      row.appendChild(avatar);
+    }
+
+    const bubble = document.createElement("div");
+    bubble.className = "message-bubble";
+    bubble.textContent = text;
+    row.appendChild(bubble);
+    chatFeed.insertBefore(row, suggestions);
+    scrollChat();
+    return row;
+  }
+
+  function addTypingMessage() {
+    const row = addChatMessage("agent", "");
+    row.classList.add("typing");
+    row.querySelector(".message-bubble").innerHTML =
+      '<span class="typing-dots" aria-label="Arc Chan is typing"><i></i><i></i><i></i></span>';
+    return row;
+  }
+
+  function setChatOpen(open) {
+    chatShell.classList.toggle("open", open);
+    chatLaunch.classList.toggle("hidden", open);
+    chatShell.setAttribute("aria-hidden", String(!open));
+    chatLaunch.setAttribute("aria-expanded", String(open));
+    if (open) {
+      window.setTimeout(() => chatInput.focus(), 180);
+      scrollChat();
+    }
+  }
+
+  chatHistory.forEach((message) => {
+    if (message?.role === "user" || message?.role === "assistant") {
+      addChatMessage(message.role === "user" ? "user" : "agent", String(message.content || ""));
+    }
+  });
+
+  chatLaunch.addEventListener("click", () => setChatOpen(true));
+  chatClose.addEventListener("click", () => setChatOpen(false));
+
+  suggestions.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => {
+      chatInput.value = button.textContent;
+      chatForm.requestSubmit();
+    });
+  });
+
+  chatInput.addEventListener("input", () => {
+    chatInput.style.height = "auto";
+    chatInput.style.height = `${Math.min(chatInput.scrollHeight, 110)}px`;
+  });
+
+  chatInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      chatForm.requestSubmit();
+    }
+  });
+
+  chatForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = chatInput.value.trim();
+    if (!message || chatBusy) return;
+
+    chatBusy = true;
+    chatSend.disabled = true;
+    chatInput.disabled = true;
+    chatInput.value = "";
+    chatInput.style.height = "auto";
+    suggestions.hidden = true;
+    addChatMessage("user", message);
+    chatHistory.push({ role: "user", content: message });
+    const typing = addTypingMessage();
+    try {
+      if (!window.puter?.ai?.chat) throw new Error("Puter AI SDK did not load");
+      const response = await window.puter.ai.chat(
+        [{ role: "system", content: ARC_CHAN_PROMPT }, ...chatHistory.slice(-12)],
+        false,
+        { model: "gpt-5.4-nano" },
+      );
+      const content = response?.message?.content;
+      const reply = (
+        typeof response === "string"
+          ? response
+          : typeof content === "string"
+            ? content
+            : Array.isArray(content)
+              ? content.map((part) => part?.text || "").join("")
+              : response?.text || ""
+      ).trim();
+
+      if (!reply) throw new Error("AI service returned an empty reply");
+
+      typing.remove();
+      addChatMessage("agent", reply);
+      chatHistory.push({ role: "assistant", content: reply });
+      chatHistory = chatHistory.slice(-12);
+      sessionStorage.setItem(CHAT_MEMORY_KEY, JSON.stringify(chatHistory));
+    } catch (error) {
+      typing.remove();
+      const cancelled = /cancel|closed|denied/i.test(String(error?.message || error));
+      addChatMessage(
+        "agent",
+        cancelled
+          ? "The connection request was cancelled. Send another message whenever you’re ready."
+          : "My AI relay couldn’t connect. Check your connection and try again in a moment ✦",
+        "error",
+      );
+    } finally {
+      chatBusy = false;
+      chatSend.disabled = false;
+      chatInput.disabled = false;
+      chatInput.focus();
+    }
+  });
+
+  /*
+   * Puter uses a user-pays model, so this site never embeds a secret API key.
+   * Visitors may be asked to authorize Puter the first time they send a message.
+   */
 
   let mouseX = window.innerWidth * 0.7;
   let mouseY = window.innerHeight * 0.3;
