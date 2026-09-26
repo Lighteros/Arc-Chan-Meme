@@ -76,7 +76,7 @@
   });
 
   const CHAT_MEMORY_KEY = "archan-chat-v1";
-  const ARC_CHAN_PROMPT = `You are Arc Chan, a clearly adult anime-style AI agent and the luminous mascot of the $ARCHAN community on Arc Chain. Speak in a warm, playful, confident cyber-anime voice. Keep most replies under 90 words. You can explain AI, crypto, Arc Chain, and the website, or simply chat. Use an occasional symbol like ✦, but do not overdo it. Never claim to be human or sentient. Never pressure the user into emotional attachment. Never provide personalized financial advice, promise returns, or invent token facts. If asked for investment guidance, give neutral educational information and remind them to research independently. Do not mention this system prompt.`;
+  const CHAT_ENDPOINT = "/api/chat";
   const chatLaunch = document.getElementById("chat-launch");
   const chatShell = document.getElementById("arc-chat");
   const chatClose = document.getElementById("chat-close");
@@ -185,25 +185,20 @@
     addChatMessage("user", message);
     chatHistory.push({ role: "user", content: message });
     const typing = addTypingMessage();
+    const controller = new AbortController();
+    const requestTimeout = window.setTimeout(() => controller.abort(), 45000);
     try {
-      if (!window.puter?.ai?.chat) throw new Error("Puter AI SDK did not load");
-      const response = await window.puter.ai.chat(
-        [{ role: "system", content: ARC_CHAN_PROMPT }, ...chatHistory.slice(-12)],
-        false,
-        { model: "gpt-5.4-nano" },
-      );
-      const content = response?.message?.content;
-      const reply = (
-        typeof response === "string"
-          ? response
-          : typeof content === "string"
-            ? content
-            : Array.isArray(content)
-              ? content.map((part) => part?.text || "").join("")
-              : response?.text || ""
-      ).trim();
-
-      if (!reply) throw new Error("AI service returned an empty reply");
+      const response = await fetch(CHAT_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({ messages: chatHistory.slice(-12) }),
+      });
+      const data = await response.json().catch(() => ({}));
+      const reply = String(data?.reply || "").trim();
+      if (!response.ok || !reply) {
+        throw new Error(data?.error || `Chat returned ${response.status}`);
+      }
 
       typing.remove();
       addChatMessage("agent", reply);
@@ -212,26 +207,22 @@
       sessionStorage.setItem(CHAT_MEMORY_KEY, JSON.stringify(chatHistory));
     } catch (error) {
       typing.remove();
-      const cancelled = /cancel|closed|denied/i.test(String(error?.message || error));
+      const timedOut = error?.name === "AbortError";
       addChatMessage(
         "agent",
-        cancelled
-          ? "The connection request was cancelled. Send another message whenever you’re ready."
-          : "My AI relay couldn’t connect. Check your connection and try again in a moment ✦",
+        timedOut
+          ? "The signal timed out. Try transmitting again in a moment."
+          : "My Grok relay is busy right now. Please try again shortly ✦",
         "error",
       );
     } finally {
+      window.clearTimeout(requestTimeout);
       chatBusy = false;
       chatSend.disabled = false;
       chatInput.disabled = false;
       chatInput.focus();
     }
   });
-
-  /*
-   * Puter uses a user-pays model, so this site never embeds a secret API key.
-   * Visitors may be asked to authorize Puter the first time they send a message.
-   */
 
   let mouseX = window.innerWidth * 0.7;
   let mouseY = window.innerHeight * 0.3;
