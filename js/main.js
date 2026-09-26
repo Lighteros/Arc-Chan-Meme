@@ -1,6 +1,7 @@
 (() => {
-  const CONTRACT = "";
+  const CONTRACT = "0x8dac5f5a1c9925c3d8fafa1e87a831804faf45c4";
   const DEX_ARC = "https://dexscreener.com/arc";
+  const UNISWAP_ARC = "https://app.uniswap.org/swap?chain=arc";
   const DEX_EMBED =
     "https://dexscreener.com/arc?embed=1&theme=dark&trades=0&info=0&chartTheme=dark";
 
@@ -24,6 +25,10 @@
     embed.src = `${pairUrl}?embed=1&theme=dark&trades=0&info=0&chartTheme=dark`;
     document.querySelectorAll('a[href="https://dexscreener.com/arc"]').forEach((link) => {
       link.href = pairUrl;
+    });
+    const swapUrl = `${UNISWAP_ARC}&outputCurrency=${CONTRACT}`;
+    document.querySelectorAll(`a[href="${UNISWAP_ARC}"]`).forEach((link) => {
+      link.href = swapUrl;
     });
   } else {
     embed.src = DEX_EMBED;
